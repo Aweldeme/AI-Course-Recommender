@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Course Recommendation System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-hover {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .difficulty-1 { background-color: #10b981; }
+        .difficulty-2 { background-color: #3b82f6; }
+        .difficulty-3 { background-color: #f59e0b; }
+        .difficulty-4 { background-color: #ef4444; }
+        .difficulty-5 { background-color: #7c3aed; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-lg">
+        <div class="container mx-auto px-4 py-6">
+            <h1 class="text-3xl font-bold text-center">🎓 AI Course Recommendation System</h1>
+            <p class="text-center mt-2 text-blue-100">Personalized course suggestions powered by machine learning</p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Student Selection -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Select Student</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="studentSelect" class="block text-sm font-medium text-gray-700 mb-2">Choose a student:</label>
+                    <select id="studentSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select a student...</option>
+                    </select>
+                </div>
+                <div>
+                    <button id="getRecommendations" class="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50" disabled>
+                        Get Recommendations
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Student Info -->
+        <div id="studentInfo" class="bg-white rounded-lg shadow-md p-6 mb-8 hidden">
+            <h3 class="text-xl font-semibold mb-4">Student Information</h3>
+            <div id="studentDetails" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Student details will be populated here -->
+            </div>
+        </div>
+
+        <!-- Course History -->
+        <div id="courseHistory" class="bg-white rounded-lg shadow-md p-6 mb-8 hidden">
+            <h3 class="text-xl font-semibold mb-4">Course History</h3>
+            <div id="courseHistoryList" class="overflow-x-auto">
+                <!-- Course history will be populated here -->
+            </div>
+        </div>
+
+        <!-- Recommendations -->
+        <div id="recommendations" class="bg-white rounded-lg shadow-md p-6 mb-8 hidden">
+            <h3 class="text-xl font-semibold mb-4">📚 Recommended Courses</h3>
+            <div id="recommendationsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Recommendations will be populated here -->
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-xl font-semibold mb-4">📊 System Statistics</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <canvas id="studentsChart" width="400" height="300"></canvas>
+                </div>
+                <div>
+                    <canvas id="coursesChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+            <p class="mt-2 text-gray-600">Loading...</p>
+        </div>
+    </div>
+
+    <script>
+        let students = [];
+        let currentStudent = null;
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStudents();
+            loadStatistics();
+        });
+
+        // Load all students
+        async function loadStudents() {
+            try {
+                const response = await fetch('/api/students');
+                students = await response.json();
+                
+                const select = document.getElementById('studentSelect');
+                select.innerHTML = '<option value="">Select a student...</option>';
+                
+                students.forEach(student => {
+                    const option = document.createElement('option');
+                    option.value = student.student_id;
+                    option.textContent = `${student.name} (${student.major}, Year ${student.year})`;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading students:', error);
+            }
+        }
+
+        // Handle student selection
+        document.getElementById('studentSelect').addEventListener('change', function() {
+            const studentId = this.value;
+            const button = document.getElementById('getRecommendations');
+            
+            if (studentId) {
+                button.disabled = false;
+                currentStudent = students.find(s => s.student_id == studentId);
+                showStudentInfo(currentStudent);
+                loadCourseHistory(studentId);
+            } else {
+                button.disabled = true;
+                hideElements(['studentInfo', 'courseHistory', 'recommendations']);
+            }
+        });
+
+        // Get recommendations
+        document.getElementById('getRecommendations').addEventListener('click', async function() {
+            if (!currentStudent) return;
+            
+            showLoading(true);
+            try {
+                const response = await fetch(`/api/recommend/${currentStudent.student_id}`);
+                const recommendations = await response.json();
+                
+                if (recommendations.error) {
+                    alert('Error getting recommendations: ' + recommendations.error);
+                } else {
+                    showRecommendations(recommendations);
+                }
+            } catch (error) {
+                console.error('Error getting recommendations:', error);
+                alert('Error getting recommendations');
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        // Show student info
+        function showStudentInfo(student) {
+            const container = document.getElementById('studentDetails');
+            container.innerHTML = `
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-blue-600">${student.name}</div>
+                    <div class="text-gray-600">${student.email}</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-lg font-semibold">${student.major}</div>
+                    <div class="text-gray-600">Year ${student.year}</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-green-600">${student.gpa}</div>
+                    <div class="text-gray-600">GPA</div>
+                </div>
+            `;
+            
+            if (student.interests) {
+                container.innerHTML += `
+                    <div class="md:col-span-3 mt-4">
+                        <div class="text-sm font-medium text-gray-700 mb-2">Interests:</div>
+                        <div class="text-sm text-gray-600">${student.interests}</div>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('studentInfo').classList.remove('hidden');
+        }
+
+        // Load course history
+        async function loadCourseHistory(studentId) {
+            try {
+                const response = await fetch(`/api/student/${studentId}/courses`);
+                const courses = await response.json();
+                
+                const container = document.getElementById('courseHistoryList');
+                if (courses.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500">No course history available.</p>';
+                } else {
+                    container.innerHTML = `
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Semester</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                ${courses.map(course => `
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <div class="text-sm font-medium text-gray-900">${course.course_code}</div>
+                                            <div class="text-sm text-gray-500">${course.course_name}</div>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${course.department}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                                ${course.grade}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${course.semester} ${course.year}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            ${'★'.repeat(course.rating)}${'☆'.repeat(5-course.rating)}
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                }
+                
+                document.getElementById('courseHistory').classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading course history:', error);
+            }
+        }
+
+        // Show recommendations
+        function showRecommendations(recommendations) {
+            const container = document.getElementById('recommendationsList');
+            
+            container.innerHTML = recommendations.map(course => `
+                <div class="bg-white border border-gray-200 rounded-lg p-6 card-hover">
+                    <div class="flex justify-between items-start mb-3">
+                        <h4 class="text-lg font-semibold text-gray-900">${course.course_code}</h4>
+                        <span class="difficulty-${course.difficulty_level} text-white text-xs px-2 py-1 rounded-full">
+                            Level ${course.difficulty_level}
+                        </span>
+                    </div>
+                    <h5 class="text-md font-medium text-gray-700 mb-2">${course.course_name}</h5>
+                    <p class="text-sm text-gray-600 mb-3">${course.description}</p>
+                    <div class="flex justify-between items-center text-sm text-gray-500">
+                        <span>${course.department}</span>
+                        <span>${course.credits} credits</span>
+                    </div>
+                    <div class="flex justify-between items-center mt-2 text-sm">
+                        <span class="text-yellow-600">★ ${course.avg_rating}/5.0</span>
+                        <span class="text-green-600">${course.enrollment_count} enrolled</span>
+                    </div>
+                    ${course.prerequisites ? `
+                        <div class="mt-2 text-xs text-gray-500">
+                            <strong>Prerequisites:</strong> ${course.prerequisites}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+            
+            document.getElementById('recommendations').classList.remove('hidden');
+        }
+
+        // Load and display statistics
+        async function loadStatistics() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                
+                // Students by major chart
+                const studentsCtx = document.getElementById('studentsChart').getContext('2d');
+                new Chart(studentsCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: stats.students_by_major.map(item => item.major),
+                        datasets: [{
+                            data: stats.students_by_major.map(item => item.count),
+                            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Students by Major'
+                            }
+                        }
+                    }
+                });
+
+                // Courses by department chart
+                const coursesCtx = document.getElementById('coursesChart').getContext('2d');
+                new Chart(coursesCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: stats.courses_by_dept.map(item => item.department),
+                        datasets: [{
+                            label: 'Number of Courses',
+                            data: stats.courses_by_dept.map(item => item.count),
+                            backgroundColor: '#667eea'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Courses by Department'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+            }
+        }
+
+        // Utility functions
+        function showLoading(show) {
+            document.getElementById('loadingOverlay').classList.toggle('hidden', !show);
+        }
+
+        function hideElements(ids) {
+            ids.forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+        }
+    </script>
+</body>
+</html>
